@@ -68,8 +68,14 @@ async def health() -> HealthResponse:
     if not ffmpeg_available():
         warnings.append("FFmpeg chưa được cài — ghép audio/video và chuyển đổi MP3 sẽ không hoạt động.")
     try:
-        import yt_dlp
-        ydl_ver = getattr(yt_dlp, "__version__", None)
+        import yt_dlp  # noqa: F401
+        # Một số phiên bản yt-dlp không định nghĩa __version__;
+        # dùng metadata của package 'yt-dlp' làm nguồn đáng tin cậy.
+        from importlib.metadata import PackageNotFoundError, version as _pkg_version
+        try:
+            ydl_ver = getattr(yt_dlp, "__version__", None) or _pkg_version("yt-dlp")
+        except PackageNotFoundError:
+            ydl_ver = None
     except ImportError:
         ydl_ver = None
         warnings.append("yt-dlp chưa được cài — engine tải xuống không khả dụng.")

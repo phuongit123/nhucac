@@ -63,17 +63,23 @@ def classify_ydl_error(exc: Exception) -> Exception:
         return DependencyMissingError(msg[:300])
     if "unsupported url" in low or "no suitable extractor" in low:
         return ExtractionOutdatedError(msg[:300])
-    if any(k in low for k in ("login", "sign in", "sign in to confirm", "cookies",
+    if any(k in low for k in ("login", "sign in", "sign in to confirm",
                               "authentication", "auth required", "members-only",
-                              "age-restricted", "private video", "this video is private",
-                              "account needed")):
+                              "account needed", "cookies")):
         return AuthenticationRequiredError(msg[:300])
-    if any(k in low for k in ("removed", "unavailable", "does not exist",
-                              "video unavailable", "not available", "deleted")):
-        return VideoUnavailableError(msg[:300])
+    # Định dạng không khả dụng — xét TRƯỚC VideoUnavailable vì chuỗi
+    # "Requested format is not available" cũng chứa "not available".
     if any(k in low for k in ("requested format is not available", "no formats",
-                              "format is not available")):
+                              "format is not available", "is not a valid format")):
         return FormatNotAvailableError(msg[:300])
+    # "private" → video bị ẩn/xóa (VideoUnavailable), KHÔNG phải lỗi đăng nhập.
+    # "age-restricted" → yêu cầu xác minh tuổi/đăng nhập → AuthenticationRequired.
+    if "private" in low or any(
+            k in low for k in ("removed", "unavailable", "does not exist",
+                               "video unavailable", "not available", "deleted")):
+        return VideoUnavailableError(msg[:300])
+    if "age-restricted" in low:
+        return AuthenticationRequiredError(msg[:300])
     if any(k in low for k in ("timed out", "timeout", "temporary failure", "connection reset",
                               "network", "getaddrinfo", "ssl", "urlopen error")):
         return NetworkError(msg[:300])

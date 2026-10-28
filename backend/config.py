@@ -25,6 +25,25 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _resolve_db_path() -> Path:
+    """Trả về đường dẫn file SQLite hợp lệ.
+
+    - UMD_DB_PATH không đặt hoặc rỗng → data_dir mặc định / umd.sqlite3.
+    - UMD_DB_PATH trỏ tới thư mục tồn tại → bên trong thư mục đó / umd.sqlite3
+      (tránh 'unable to open database file' khi người dùng cấu hình nhầm thư mục).
+    - Ngược lại: dùng đúng đường dẫn người dùng cấu hình.
+    """
+    raw = os.getenv("UMD_DB_PATH", "").strip()
+    if not raw:
+        data_dir = Path(os.getenv(
+            "UMD_DATA_DIR", Path.home() / ".universal-media-downloader"))
+        return data_dir / "umd.sqlite3"
+    p = Path(raw)
+    if p.is_dir():
+        return p / "umd.sqlite3"
+    return p
+
+
 @dataclass
 class Settings:
     app_name: str = "Universal Media Downloader"
@@ -36,9 +55,9 @@ class Settings:
     download_dir: Path = field(default_factory=lambda: Path(
         os.getenv("UMD_DOWNLOAD_DIR", str(Path.home() / "Downloads" / "UniversalMediaDownloader"))))
 
-    # Database
-    db_path: Path = field(default_factory=lambda: Path(
-        os.getenv("UMD_DB_PATH", "")) or None)  # type: ignore[assignment]
+    # Database — nếu UMD_DB_PATH không tồn tại hoặc rỗng, mặc định data_dir/umd.sqlite3.
+    # (Path("") == Path(".") là thư mục hiện tại, KHÔNG phải None — lỗi cũ ở đây.)
+    db_path: Path = field(default_factory=lambda: _resolve_db_path())
 
     # Hàng đợi
     max_concurrent_tasks: int = field(default_factory=lambda: _env_int("UMD_MAX_CONCURRENT", 2))
@@ -67,10 +86,12 @@ class Settings:
     cookie_file: Path | None = None
 
     def __post_init__(self) -> None:
-        if self.db_path is None:
+        # db_path luôn là file (không bao giờ là '.' hay thư mục rỗng).
+        raw = str(self.db_path).strip() if self.db_path is not None else ""
+        if not raw or raw in {".", "\\"} or Path(raw).is_dir():
             object.__setattr__(self, "db_path", self.data_dir / "umd.sqlite3")
         else:
-            object.__setattr__(self, "db_path", Path(str(self.db_path)))
+            object.__setattr__(self, "db_path", Path(raw))
         self.data_dir = Path(self.data_dir)
         self.download_dir = Path(self.download_dir)
         cf = os.getenv("UMD_COOKIE_FILE")
@@ -79,7 +100,10 @@ class Settings:
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.download_dir.mkdir(parents=True, exist_ok=True)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Thư mục cha của file DB (có thể khác data_dir nếu cấu hình UMD_DB_PATH)
+        parent = self.db_path.parent
+        if str(parent):
+            parent.mkdir(parents=True, exist_ok=True)
 
     def free_disk_bytes(self) -> int:
         probe = self.download_dir if self.download_dir.exists() else Path("/")

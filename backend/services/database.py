@@ -51,10 +51,18 @@ def _now() -> float:
 
 
 class Database:
-    def __init__(self, path: Path | None = None) -> None:
-        self.path = str(path or settings.db_path)
+    def __init__(self, path: Path | str | None = None) -> None:
+        # Không bao giờ để rỗng/'.'/'\' — luôn trỏ tới FILE, không phải thư mục.
+        p = Path(str(path or settings.db_path))
+        if not str(p).strip() or str(p) in {".", "\\"} or p.is_dir():
+            p = settings.data_dir / "umd.sqlite3"
+        self.path = str(p)
 
     async def connect(self) -> None:
+        # Đảm bảo thư mục cha tồn tại trước khi mở file SQLite
+        # (aiosqlite/sqlite3 báo 'unable to open database file' nếu thiếu).
+        parent = Path(self.path).parent
+        parent.mkdir(parents=True, exist_ok=True)
         self.db = await aiosqlite.connect(self.path)
         self.db.row_factory = aiosqlite.Row
         await self.db.executescript(SCHEMA)
