@@ -205,7 +205,15 @@ class QueueManager:
         flag = CancelFlag()
         at = asyncio.create_task(self._worker(task_id, flag), name=f"dl-{task_id}")
         self._running[task_id] = (at, flag)
-        at.add_done_callback(lambda _t: self._running.pop(task_id, None))
+
+        def _on_done(_t: asyncio.Task, tid: str = task_id) -> None:
+            # Chi xoa entry neu van la worker cua chinh no — tranh race khi
+            # retry/resume tao worker moi trong khi callback worker cu chay muon.
+            cur = self._running.get(tid)
+            if cur and cur[0] is _t:
+                self._running.pop(tid, None)
+
+        at.add_done_callback(_on_done)
 
     async def _require(self, task_id: str) -> TaskOut:
         task = await self.db.get_task(task_id)
@@ -295,19 +303,88 @@ class QueueManager:
                                           error={"error_code": "task_cancelled",
                                                  "message": "Tác vụ đã bị hủy."})
             except AppError as exc:
-                task = await self.db.get_task(task_id)
-                if not task:
-                    return
-                task.attempts += 1
-                retriable = exc.error_code in RETRYABLE and task.attempts <= settings.max_retries
-                if retriable and task_id not in self._paused_ids:
-                    await self._set_state(task, TaskState.QUEUED, error=exc.to_dict())
-                    await asyncio.sleep(min(2 ** task.attempts, 8))
-                    self._schedule(task_id)
-                else:
-                    await self._set_state(task, TaskState.FAILED, error=exc.to_dict())
-                    self.bus.publish({"event": "task_failed", "task_id": task_id,
-                                      "error": exc.to_dict()})
+                # --- Retry TUONG MINH cho loi tam thoi (network/timeout) ---
+                # Chay trong CUNG worker (khong _schedule lai): tranh race
+                # "done-callback worker cu xoa entry cua worker moi" va gan
+                # bo qua cac chan `task_id in self._running`.
+                cur_exc: AppError = exc
+                while True:
+                    task = await self.db.get_task(task_id)
+                    if not task:
+                        return
+                    task.attempts += 1
+                    retriable = (cur_exc.error_code in RETRYABLE
+                                 and task.attempts <= settings.max_retries
+                                 and task_id not in self._paused_ids)
+                    if not retriable:
+                        await self._set_state(task, TaskState.FAILED, error=cur_exc.to_dict())
+                        self.bus.publish({"event": "task_failed", "task_id": task_id,
+                                          "error": cur_exc.to_dict()})
+                        return
+                    # GIU NGUYEN error de frontend thay "dang retry"; chi reset
+                    # khi manual retry (extra_reset). Khong await giua 2 dong nay.
+                    await self._set_state(task, TaskState.QUEUED, error=cur_exc.to_dict())
+                    delay = min(2 ** task.attempts, 8)
+                    try:
+                        await asyncio.sleep(delay)
+                    except asyncio.CancelledError:
+                        c = await self.db.get_task(task_id)
+                        if c:
+                            st = TaskState.PAUSED if task_id in self._paused_ids else TaskState.CANCELLED
+                            await self._set_state(c, st)
+                        raise
+                    # kiem tra cancel/pause/remove trong luc backoff
+                    check = await self.db.get_task(task_id)
+                    if check is None or check.state == TaskState.CANCELLED \
+                            or task_id in self._paused_ids:
+                        if check is not None and task_id in self._paused_ids \
+                                and check.state not in TERMINAL_STATES:
+                            await self._set_state(check, TaskState.PAUSED)
+                        return
+                    if not task.title:
+                        try:
+                            await self._set_state(task, TaskState.ANALYZING)
+                            meta = await asyncio.wait_for(
+                                analyze(task.url, adapter), settings.task_timeout_seconds)
+                            task.title = meta.title
+                            await self.db.update_task(task)
+                        except AppError as e2:
+                            cur_exc = e2
+                            continue
+                        except asyncio.CancelledError:
+                            c = await self.db.get_task(task_id)
+                            if c:
+                                st = TaskState.PAUSED if task_id in self._paused_ids else TaskState.CANCELLED
+                                await self._set_state(c, st)
+                            raise
+                    await self._set_state(task, TaskState.DOWNLOADING)
+                    try:
+                        fp = await download_file(
+                            task.url, adapter,
+                            {**task.options.model_dump(),
+                             "output_dir": Path(task.options.output_dir),
+                             "filename_stem": task.title or "video"},
+                            progress_cb, flag)
+                        if not fp.exists() or fp.stat().st_size <= 0:
+                            raise RuntimeError("File kết quả không hợp lệ sau tải.")
+                        task.file_path = str(fp)
+                        task.file_size = fp.stat().st_size
+                        await self._set_state(task, TaskState.COMPLETED)
+                        await self.db.add_history(
+                            task_id=task.id, url=task.url, platform_key=task.platform_key,
+                            title=task.title, file_path=task.file_path, file_size=task.file_size)
+                        self.bus.publish({"event": "task_completed", "task_id": task_id,
+                                          "file_path": task.file_path})
+                        return
+                    except AppError as e3:
+                        cur_exc = e3
+                        continue
+                    except asyncio.CancelledError:
+                        c = await self.db.get_task(task_id)
+                        if c:
+                            st = TaskState.PAUSED if task_id in self._paused_ids else TaskState.CANCELLED
+                            await self._set_state(c, st)
+                        raise
             except Exception as exc:  # KHÔNG để crash cả backend
                 log.exception("Lỗi không mong muốn ở task %s", task_id)
                 task = await self.db.get_task(task_id)
