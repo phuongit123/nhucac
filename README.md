@@ -15,13 +15,15 @@
 > - Phải giải nén `workspace.tar` vào thư mục có đường dẫn **không chứa dấu `;` và khoảng trắng lạ**, ví dụ `C:\projects\umd`. Nếu giải nén thành `...\workspace.tar(3)\`, venv sẽ bị từ chối tạo — hãy giải nén đúng bằng 7-Zip vào `C:\projects\umd`.
 
 ```bat
-cd /d C:\projects\umd
-python -m venv .venv
-.venv\Scripts\activate
+cd /d "C:\projectD-acl-out\workspace.tar(3)"
+py -3.12 -m venv .venv
+".venv\Scripts\activate.bat"
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8756
 ```
+
+> Đường dẫn của bạn chứa `(3)` — **phải bọc dấu ngoặc kép `"` quanh lệnh `cd`**, nếu không CMD sẽ hiểu sai đường dẫn. Nếu `py -3.12` báo không tìm thấy, hãy cài Python 3.12 từ python.org (bỏ chọn bản 3.15 — quá mới, yt-dlp/FastAPI chưa được kiểm chứng) và thay bằng `py -3.12` hoặc `python` sau khi đã bật đúng phiên bản.
 
 Mở trình duyệt: `http://127.0.0.1:8756/api/health` (backend), `http://127.0.0.1:8756/docs` (Swagger API).
 
