@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="vi" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Universal Media Downloader</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">⬇</span><div><b>UMD</b><small>Universal Media Downloader</small></div></div>
+    <nav id="nav">
+      <button data-view="home" class="active">🏠 <span>Trang chủ</span></button>
+      <button data-view="downloader">🔗 <span>Tải theo URL</span></button>
+      <button data-view="batch">📚 <span>Tải hàng loạt</span></button>
+      <button data-view="queue">⏳ <span>Hàng đợi</span><em id="badge-queue" class="badge"></em></button>
+      <button data-view="history">🗂 <span>Lịch sử</span></button>
+      <button data-view="settings">⚙️ <span>Cài đặt</span></button>
+      <button data-view="platforms">🧩 <span>Nền tảng</span></button>
+      <button data-view="about">ℹ️ <span>Giới thiệu</span></button>
+    </nav>
+    <div class="side-foot">
+      <button id="btn-lang" title="Chuyển ngôn ngữ">VI / EN</button>
+      <button id="btn-theme" title="Sáng / Tối">🌗</button>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <h1 id="view-title">Trang chủ</h1>
+      <div class="conn"><span id="conn-dot" class="dot"></span><span id="conn-text">đang kết nối…</span></div>
+    </header>
+
+    <!-- HOME -->
+    <section class="view active" id="v-home">
+      <div class="hero card">
+        <h2>Dán URL video để bắt đầu</h2>
+        <p class="muted">Hỗ trợ YouTube, Facebook, TikTok, Bilibili, Vimeo, Dailymotion, X/Twitter, Reddit, Instagram (cần cookie nếuprivate)… — xem tab Nền tảng để biết giới hạn từng nguồn. Chỉ tải nội dung bạn có quyền truy cập.</p>
+        <div class="row big">
+          <input id="home-url" type="url" placeholder="https://www.youtube.com/watch?v=..." spellcheck="false">
+          <button class="btn ghost" id="home-paste" title="Dán từ clipboard">📋 Dán</button>
+          <button class="btn primary" id="home-analyze">Phân tích</button>
+        </div>
+        <div id="home-msg"></div>
+      </div>
+      <div class="grid3" id="home-stats"></div>
+    </section>
+
+    <!-- DOWNLOADER -->
+    <section class="view" id="v-downloader">
+      <div class="card">
+        <div class="row big">
+          <input id="dl-url" type="url" placeholder="Dán URL vào đây…" spellcheck="false">
+          <button class="btn ghost" id="dl-paste">📋 Dán</button>
+          <button class="btn primary" id="dl-analyze">Phân tích</button>
+        </div>
+        <div id="dl-detect" class="chip-row"></div>
+      </div>
+      <div id="dl-preview" class="card preview hidden"></div>
+      <div id="dl-formats" class="card hidden"></div>
+      <div id="dl-task" class="card hidden"></div>
+    </section>
+
+    <!-- BATCH -->
+    <section class="view" id="v-batch">
+      <div class="card">
+        <h3>Tải nhiều video</h3>
+        <textarea id="batch-urls" rows="6" placeholder="Mỗi dòng một URL…"></textarea>
+        <div class="row">
+          <button class="btn primary" id="batch-add">Thêm tất cả vào hàng đợi</button>
+          <label class="chk"><input type="checkbox" id="batch-best" checked> Dùng chất lượng tốt nhất khả dụng</label>
+        </div>
+        <div id="batch-msg"></div>
+      </div>
+    </section>
+
+    <!-- QUEUE -->
+    <section class="view" id="v-queue">
+      <div class="card">
+        <div class="row space">
+          <h3>Hàng đợi tải xuống</h3>
+          <button class="btn ghost" id="q-refresh">↻ Làm mới</button>
+        </div>
+        <div id="q-stats" class="chip-row"></div>
+        <div id="q-list" class="tasklist"></div>
+      </div>
+    </section>
+
+    <!-- HISTORY -->
+    <section class="view" id="v-history">
+      <div class="card">
+        <div class="row space"><h3>Lịch sử tải xuống</h3><button class="btn ghost" id="h-refresh">↻ Làm mới</button></div>
+        <div id="h-list" class="tasklist"></div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="v-settings">
+      <div class="card">
+        <h3>Cookie cục bộ (tùy chọn)</h3>
+        <p class="muted">Nếu nguồn yêu cầu đăng nhập (Vimeo/Instagram…), đặt biến môi trường <code>UMD_COOKIE_FILE=C:\duong-dan\cookies.txt</code> rồi khởi động lại backend. Cookie Netscape-format, chỉ dùng cho nội dung bạn có quyền truy cập. Backend KHÔNG bao giờ gửi cookie ra máy chủ bên ngoài.</p>
+        <h3>Thư mục lưu file</h3>
+        <div class="row"><input id="set-dir" type="text"><button class="btn primary" id="set-dir-save">Lưu</button></div>
+        <div id="set-msg"></div>
+        <h3>Sức khỏe hệ thống</h3>
+        <div id="set-health" class="chip-row"></div>
+      </div>
+    </section>
+
+    <!-- PLATFORMS -->
+    <section class="view" id="v-platforms">
+      <div class="card"><h3>Trạng thái hỗ trợ nền tảng</h3><div id="p-list"></div></div>
+    </section>
+
+    <!-- ABOUT -->
+    <section class="view" id="v-about">
+      <div class="card">
+        <h3>Universal Media Downloader</h3>
+        <p>Backend: Python + FastAPI + yt-dlp + FFmpeg. Engine tải thật — không dùng dữ liệu giả.
+        Chỉ tải nội dung công khai hoặc nội dung bạn có quyền tải. Không vượt DRM/paywall/CAPTCHA.</p>
+        <p class="muted" id="about-ver"></p>
+      </div>
+    </section>
+  </main>
+</div>
+<template id="tpl-progress"><div class="prog"><div class="bar"><i></i></div><span class="pct"></span></div></template>
+<script src="app.js"></script>
+</body>
+</html>
