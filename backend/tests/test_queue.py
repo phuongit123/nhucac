@@ -105,13 +105,26 @@ async def test_retry_on_network_error_then_fail(qm, tmp_path, monkeypatch) -> No
     manager, db, _ = qm
     calls = {"n": 0}
 
+    # Mock analyze de test chay offline hoan toan (khong goi yt-dlp that).
+    async def fake_analyze(url, adapter):
+        from backend.services.download_engine import MediaMetadata
+        return MediaMetadata(url=url, platform_key=adapter.key, title="Mock Video",
+                             thumbnail=None, duration=60, uploader="tester",
+                             webpage_url=url, formats=[])
+
+    monkeypatch.setattr("backend.services.queue_manager.analyze", fake_analyze)
+
     async def failing(url, adapter, options, progress_cb, cancel):
         calls["n"] += 1
         from backend.errors import NetworkError
         raise NetworkError("mock timeout")
 
     monkeypatch.setattr("backend.services.queue_manager.download_file", failing)
-    monkeypatch.setattr("backend.services.queue_manager.asyncio.sleep", lambda s: asyncio.sleep(0))
+    # Patch tên sleep CỤ BỘ trong module queue (không đụng asyncio.sleep toàn cục,
+    # tránh vòng lặp vô hạn do lambda gọi chính nó).
+    async def _instant(_seconds):
+        return None
+    monkeypatch.setattr("backend.services.queue_manager.asyncio.sleep", _instant)
     task = await manager.add(_opts("https://youtu.be/dQw4w9WgXcQ", tmp_path))
     for _ in range(120):
         cur = await db.get_task(task.id)

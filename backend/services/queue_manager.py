@@ -102,9 +102,13 @@ class QueueManager:
             state=TaskState.QUEUED, options=options,
             created_at=now, updated_at=now,
         )
+        # Chen DB + schedule trong CUNG mot vong su kien (khong co await giua
+        # chung) de khong ton tai cua so "task nhin thay QUEUED ma chua co
+        # worker" — tranh race khi cancel ngay sau add().
+        await asyncio.sleep(0)  # mao ham: kiem tra tinh atomic o day
         await self.db.insert_task(task)
-        self.bus.publish({"event": "task_added", "task": task.model_dump(mode="json")})
         self._schedule(task.id)
+        self.bus.publish({"event": "task_added", "task": task.model_dump(mode="json")})
         return task
 
     async def cancel(self, task_id: str) -> TaskOut:
@@ -112,12 +116,16 @@ class QueueManager:
         if task.state in TERMINAL_STATES:
             return task
         entry = self._running.get(task_id)
-        if entry:
+        self._paused_ids.discard(task_id)
+        if entry and task.state not in (TaskState.QUEUED,):
+            # Task dang chay that: huy asyncio.Task; except CancelledError
+            # trong _worker se ghi trang thai CANCELLED.
             _async_task, flag = entry
             flag.cancelled = True
             _async_task.cancel()
         else:
-            self._paused_ids.discard(task_id)
+            # Task chua bat dau (queued pending semaphore) hoac worker chet sot
+            # trong _running -> ghi CANCELLED truc tiep de khong ket trang thai.
             await self._set_state(task, TaskState.CANCELLED,
                                   error={"error_code": "task_cancelled",
                                          "message": "Người dùng đã hủy tác vụ."})
@@ -218,6 +226,10 @@ class QueueManager:
                          task_id=task.id)
 
     async def _worker(self, task_id: str, flag: CancelFlag) -> None:
+        # Neu cancel() da ghi CANCELLED luc worker con cho semaphore thi thoat.
+        pre = await self.db.get_task(task_id)
+        if pre is None or pre.state in TERMINAL_STATES:
+            return
         async with self._sem:
             try:
                 task = await self._require(task_id)
